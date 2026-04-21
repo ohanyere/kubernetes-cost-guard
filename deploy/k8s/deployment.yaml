@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubernetes-cost-guard
+  namespace: kubernetes-cost-guard
+  labels:
+    app.kubernetes.io/name: kubernetes-cost-guard
+    app.kubernetes.io/part-of: kubernetes-cost-guard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubernetes-cost-guard
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kubernetes-cost-guard
+        app.kubernetes.io/part-of: kubernetes-cost-guard
+    spec:
+      serviceAccountName: kubernetes-cost-guard
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: ghcr.io/ohanyere/kubernetes-cost-guard:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: KCG_APP_NAME
+              value: kubernetes-cost-guard
+            - name: KCG_ENV
+              value: cluster
+            - name: KCG_HTTP_ADDR
+              value: :8080
+            - name: KCG_VERSION
+              value: "0.1.0"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true

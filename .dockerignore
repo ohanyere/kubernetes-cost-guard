@@ -1,0 +1,14 @@
+.git
+.github
+.codex
+deploy
+migrations
+
+Dockerfile
+README.md
+
+*.log
+tmp/
+dist/
+bin/
+coverage.out

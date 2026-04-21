@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubernetes-cost-guard
+  namespace: kubernetes-cost-guard
+  labels:
+    app.kubernetes.io/name: kubernetes-cost-guard
+    app.kubernetes.io/part-of: kubernetes-cost-guard
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: kubernetes-cost-guard
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

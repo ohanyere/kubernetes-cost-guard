@@ -1,0 +1,36 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubernetes-cost-guard
+  labels:
+    app.kubernetes.io/name: kubernetes-cost-guard
+    app.kubernetes.io/part-of: kubernetes-cost-guard
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubernetes-cost-guard
+  labels:
+    app.kubernetes.io/name: kubernetes-cost-guard
+    app.kubernetes.io/part-of: kubernetes-cost-guard
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubernetes-cost-guard
+subjects:
+  - kind: ServiceAccount
+    name: kubernetes-cost-guard
+    namespace: kubernetes-cost-guard
