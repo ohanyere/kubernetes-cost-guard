@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+    paths-ignore:
+      - "deploy/k8s/deployment.yaml"
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: write
+  packages: write
+  security-events: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: kubernetes-cost-guard
+
+jobs:
+  build-test-scan:
+    name: Build, Test, Scan, and Publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+
+      - name: Check Go formatting
+        run: test -z "$(gofmt -l .)"
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Checkov Kubernetes scan
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: deploy/k8s
+          framework: kubernetes
+          quiet: true
+          soft_fail: true
+
+      - name: Prepare image tags
+        id: image
+        shell: bash
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          short_sha="${GITHUB_SHA::7}"
+          image="${REGISTRY}/${owner}/${IMAGE_NAME}:${short_sha}"
+          latest="${REGISTRY}/${owner}/${IMAGE_NAME}:latest"
+
+          echo "owner=${owner}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "latest=${latest}" >> "$GITHUB_OUTPUT"
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t "${{ steps.image.outputs.image }}" \
+            -t "${{ steps.image.outputs.latest }}" \
+            .
+
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.image.outputs.image }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Log in to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Docker image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          docker push "${{ steps.image.outputs.image }}"
+          docker push "${{ steps.image.outputs.latest }}"
+
+      - name: Update Kubernetes image manifest
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          image="${{ steps.image.outputs.image }}"
+          manifest="deploy/k8s/deployment.yaml"
+
+          sed -i -E "s#^([[:space:]]*image: ).*kubernetes-cost-guard:.*#\1${image}#" "$manifest"
+          grep -n "image: ${image}" "$manifest"
+
+      - name: Commit GitOps manifest update
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          manifest="deploy/k8s/deployment.yaml"
+
+          if git diff --quiet -- "$manifest"; then
+            echo "Deployment manifest already references ${{ steps.image.outputs.image }}"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$manifest"
+          git commit -m "ci: update image to ${{ steps.image.outputs.short_sha }}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
